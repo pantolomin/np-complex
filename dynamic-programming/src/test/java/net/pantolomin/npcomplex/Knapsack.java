@@ -22,9 +22,6 @@ public class Knapsack {
         File problemsDir = new File(getClass().getClassLoader().getResource(RESOURCE).getFile());
         for (File f : problemsDir.listFiles()) {
             Problem problem = readProblem(f);
-            if (problem.getItems().size() > 1000) {
-                continue;
-            }
             log.info("Problem {}: capacity: {} - items: {}",
                     f.getName(), problem.getCapacity(), problem.getItems().size());
             BranchAndBound<Item> dp = new BranchAndBound<>(problem.getItems(), i -> i.getWeight(), i -> i.getValue());

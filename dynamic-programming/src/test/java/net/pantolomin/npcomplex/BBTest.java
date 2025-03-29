@@ -41,7 +41,6 @@ public class BBTest {
     }
 
     private void checkItems(List<Item> items, BranchAndBound.Solution<Item> solution, int... indices) {
-        int idx = 0;
         List<Item> expectedItems = Arrays.stream(indices).mapToObj(items::get).collect(Collectors.toList());
         for (Item item : solution.getItems()) {
             assertTrue(expectedItems.remove(item));
@@ -51,10 +50,7 @@ public class BBTest {
     private record Item(int weight, int value) {
         @Override
         public String toString() {
-            return "Item{" +
-                    "weight=" + weight +
-                    ", value=" + value +
-                    '}';
+            return "Item[" + "w=" + weight + ",v=" + value + ']';
         }
     }
 }

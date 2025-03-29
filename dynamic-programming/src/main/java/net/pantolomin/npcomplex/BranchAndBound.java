@@ -1,33 +1,25 @@
 package net.pantolomin.npcomplex;
 
+import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Stack;
 import java.util.function.ToDoubleFunction;
 
 import static net.pantolomin.npcomplex.DoubleUtil.gt;
 import static net.pantolomin.npcomplex.DoubleUtil.leZero;
 
 @RequiredArgsConstructor
+@Slf4j
 public class BranchAndBound<I> {
     private final List<I> items;
     private final ToDoubleFunction<I> itemCost;
     private final ToDoubleFunction<I> itemValue;
-
-    private static <I> boolean isFinished(SearchContext<I> searchCtx, int index) {
-        if (index >= searchCtx.getOrderedItems().length) {
-            Solution<I> currentSolution = searchCtx.getCurrentSolution();
-            if (searchCtx.getBestSolution() == null
-                    || gt(currentSolution.currentValue(), searchCtx.getBestSolution().currentValue())) {
-                searchCtx.setBestSolution(currentSolution);
-            } // else: solution is worse than our best till now
-            return true;
-        }
-        return false;
-    }
 
     public final Solution<I> maximizeValue(double costLimit) {
         WeightedItem<I>[] orderedItems = this.items.stream()
@@ -35,51 +27,53 @@ public class BranchAndBound<I> {
                 .sorted()
                 .toArray(WeightedItem[]::new);
         SearchContext<I> searchCtx = new SearchContext<>(orderedItems, costLimit);
-        explore(searchCtx, 0);
+        Stack<State<I>> stack = new Stack<>();
+        int maxStackSize = 0;
+        int iterations = 0;
+        stack.push(new State<>(0, Side.LEFT, new Solution<>(null, null, 0d, 0d)));
+        while (!stack.isEmpty()) {
+            State<I> state = stack.pop();
+            switch (state.getSide()) {
+                case LEFT:
+                    exploreLeftSide(searchCtx, stack, state);
+                    break;
+                case RIGHT:
+                    exploreRightSide(searchCtx, stack, state);
+                    break;
+            }
+            maxStackSize = Math.max(maxStackSize, stack.size());
+            iterations++;
+        }
+        log.info("Stack size: {} - Iterations: {}", maxStackSize, iterations);
         return searchCtx.getBestSolution();
     }
 
-    private void explore(SearchContext<I> searchCtx, int index) {
-        exploreLeftSide(searchCtx, index);
-        exploreRightSide(searchCtx, index + 1);
-    }
-
-    private void exploreLeftSide(SearchContext<I> searchCtx, int index) {
-        Solution<I> currentSolution = searchCtx.getCurrentSolution();
+    private void exploreLeftSide(SearchContext<I> searchCtx, Stack<State<I>> stack, State<I> state) {
+        Solution<I> currentSolution = state.getCurrentSolution();
         // Take it -> explore the left side of the tree
-        Solution<I> newSolution = add(searchCtx, searchCtx.getOrderedItems()[index].item());
+        Solution<I> newSolution = addItem(searchCtx, searchCtx.getOrderedItems()[state.getIndex()].item(), currentSolution);
         if (newSolution == null) {
             // "currentSolution" is a solution
             if (searchCtx.getBestSolution() == null
                     || gt(currentSolution.currentValue(), searchCtx.getBestSolution().currentValue())) {
                 searchCtx.setBestSolution(currentSolution);
             } // else: solution is worse than our best till now
-            return;
-        }
-        searchCtx.setCurrentSolution(newSolution);
-        int nextIndex = index + 1;
-        try {
-            if (isFinished(searchCtx, nextIndex)) {
-                return;
+            stack.push(new State<>(state.getIndex(), Side.RIGHT, currentSolution));
+        } else {
+            int nextIndex = state.getIndex() + 1;
+            if (nextIndex >= searchCtx.getOrderedItems().length) {
+                if (searchCtx.getBestSolution() == null
+                        || gt(newSolution.currentValue(), searchCtx.getBestSolution().currentValue())) {
+                    searchCtx.setBestSolution(newSolution);
+                } // else: solution is worse than our best till now
+            } else {
+                stack.push(new State<>(state.getIndex(), Side.RIGHT, currentSolution));
+                stack.push(new State<>(nextIndex, Side.LEFT, newSolution));
             }
-            explore(searchCtx, nextIndex);
-        } finally {
-            searchCtx.setCurrentSolution(currentSolution);
         }
     }
 
-    private void exploreRightSide(SearchContext<I> searchCtx, int index) {
-        // Don't take it -> explore the right side of the tree
-        Solution<I> currentSolution = searchCtx.getCurrentSolution();
-        double maxValue = estimateValue(searchCtx.getOrderedItems(), index, searchCtx.getCostLimit() - currentSolution.currentCost())
-                + currentSolution.currentValue();
-        if (gt(maxValue, searchCtx.getBestSolution().currentValue())) {
-            explore(searchCtx, index);
-        } // else: will never obtain a better solution
-    }
-
-    private Solution<I> add(SearchContext<I> searchCtx, I item) {
-        Solution<I> currentSolution = searchCtx.getCurrentSolution();
+    private Solution<I> addItem(SearchContext<I> searchCtx, I item, Solution<I> currentSolution) {
         double cost = itemCost.applyAsDouble(item);
         double value = itemValue.applyAsDouble(item);
         double updatedCost = currentSolution.currentCost() + cost;
@@ -87,6 +81,17 @@ public class BranchAndBound<I> {
             return null;
         }
         return new Solution<>(currentSolution, item, updatedCost, currentSolution.currentValue() + value);
+    }
+
+    private void exploreRightSide(SearchContext<I> searchCtx, Stack<State<I>> stack, State<I> state) {
+        Solution<I> currentSolution = state.getCurrentSolution();
+        int nextIndex = state.getIndex() + 1;
+        // Don't take it -> explore the right side of the tree
+        double maxValue = estimateValue(searchCtx.getOrderedItems(), nextIndex, searchCtx.getCostLimit() - currentSolution.currentCost())
+                + currentSolution.currentValue();
+        if (gt(maxValue, searchCtx.getBestSolution().currentValue())) {
+            stack.push(new State<>(nextIndex, Side.LEFT, state.getCurrentSolution()));
+        }
     }
 
     /**
@@ -112,13 +117,24 @@ public class BranchAndBound<I> {
         return maxValue;
     }
 
+    private enum Side {LEFT, RIGHT}
+
+    @AllArgsConstructor
+    @Getter
+    @Setter
+    private static final class State<I> {
+        private final int index;
+        private Side side;
+        private Solution<I> currentSolution;
+    }
+
     @RequiredArgsConstructor
     @Getter
     @Setter
     private static final class SearchContext<I> {
         private final WeightedItem<I>[] orderedItems;
         private final double costLimit;
-        private Solution<I> currentSolution = new Solution<>(null, null, 0d, 0d);
+        //private Solution<I> currentSolution = new Solution<>(null, null, 0d, 0d);
         private Solution<I> bestSolution;
     }
 
