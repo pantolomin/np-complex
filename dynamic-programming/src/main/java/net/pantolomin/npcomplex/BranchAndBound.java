@@ -17,47 +17,64 @@ public class BranchAndBound<I> {
     private final ToDoubleFunction<I> itemCost;
     private final ToDoubleFunction<I> itemValue;
 
+    private static <I> boolean isFinished(SearchContext<I> searchCtx, int index) {
+        if (index >= searchCtx.getOrderedItems().length) {
+            Solution<I> currentSolution = searchCtx.getCurrentSolution();
+            if (searchCtx.getBestSolution() == null
+                    || gt(currentSolution.currentValue(), searchCtx.getBestSolution().currentValue())) {
+                searchCtx.setBestSolution(currentSolution);
+            } // else: solution is worse than our best till now
+            return true;
+        }
+        return false;
+    }
+
     public final Solution<I> maximizeValue(double costLimit) {
         WeightedItem<I>[] orderedItems = this.items.stream()
                 .map(item -> new WeightedItem<>(item, this.itemValue.applyAsDouble(item) / this.itemCost.applyAsDouble(item)))
                 .sorted()
                 .toArray(WeightedItem[]::new);
-        SearchContext<I> ctx = new SearchContext<>(orderedItems, costLimit);
-        explore(ctx, 0);
-        return ctx.getBestSolution();
+        SearchContext<I> searchCtx = new SearchContext<>(orderedItems, costLimit);
+        explore(searchCtx, 0);
+        return searchCtx.getBestSolution();
     }
 
     private void explore(SearchContext<I> searchCtx, int index) {
-        WeightedItem<I>[] orderedItems = searchCtx.getOrderedItems();
+        exploreLeftSide(searchCtx, index);
+        exploreRightSide(searchCtx, index + 1);
+    }
+
+    private void exploreLeftSide(SearchContext<I> searchCtx, int index) {
         Solution<I> currentSolution = searchCtx.getCurrentSolution();
-        if (index >= orderedItems.length) {
+        // Take it -> explore the left side of the tree
+        Solution<I> newSolution = add(searchCtx, searchCtx.getOrderedItems()[index].item());
+        if (newSolution == null) {
+            // "currentSolution" is a solution
             if (searchCtx.getBestSolution() == null
                     || gt(currentSolution.currentValue(), searchCtx.getBestSolution().currentValue())) {
                 searchCtx.setBestSolution(currentSolution);
             } // else: solution is worse than our best till now
             return;
         }
-        I item = orderedItems[index].item();
+        searchCtx.setCurrentSolution(newSolution);
         int nextIndex = index + 1;
-        // Take it -> explore the left side of the tree
-        Solution<I> newSolution = add(searchCtx, item);
-        if (newSolution != null) {
-            searchCtx.setCurrentSolution(newSolution);
+        try {
+            if (isFinished(searchCtx, nextIndex)) {
+                return;
+            }
             explore(searchCtx, nextIndex);
+        } finally {
             searchCtx.setCurrentSolution(currentSolution);
-        } else if (searchCtx.getBestSolution() == null
-                || gt(currentSolution.currentValue(), searchCtx.getBestSolution().currentValue())) {
-            searchCtx.setBestSolution(currentSolution);
-        } // else: solution is worse than our best till now
-        exploreRightSide(searchCtx, nextIndex, currentSolution);
+        }
     }
 
-    private void exploreRightSide(SearchContext<I> searchCtx, int nextIndex, Solution<I> currentSolution) {
+    private void exploreRightSide(SearchContext<I> searchCtx, int index) {
         // Don't take it -> explore the right side of the tree
-        double maxValue = estimateValue(searchCtx.getOrderedItems(), nextIndex, searchCtx.getCostLimit() - currentSolution.currentCost())
+        Solution<I> currentSolution = searchCtx.getCurrentSolution();
+        double maxValue = estimateValue(searchCtx.getOrderedItems(), index, searchCtx.getCostLimit() - currentSolution.currentCost())
                 + currentSolution.currentValue();
         if (gt(maxValue, searchCtx.getBestSolution().currentValue())) {
-            explore(searchCtx, nextIndex);
+            explore(searchCtx, index);
         } // else: will never obtain a better solution
     }
 
