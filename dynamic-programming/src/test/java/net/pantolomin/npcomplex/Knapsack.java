@@ -22,15 +22,15 @@ public class Knapsack {
         File problemsDir = new File(getClass().getClassLoader().getResource(RESOURCE).getFile());
         for (File f : problemsDir.listFiles()) {
             Problem problem = readProblem(f);
-            if (problem.getItems().size() >= 100) {
+            if (problem.getItems().size() > 1000) {
                 continue;
             }
             log.info("Problem {}: capacity: {} - items: {}",
                     f.getName(), problem.getCapacity(), problem.getItems().size());
-            DynamicP<Item> dp = new DynamicP<>(problem.getItems(), i -> i.getWeight(), i -> i.getValue());
-            DynamicP.Solution<Item> solution = dp.maximizeValue(problem.getCapacity());
+            BranchAndBound<Item> dp = new BranchAndBound<>(problem.getItems(), i -> i.getWeight(), i -> i.getValue());
+            BranchAndBound.Solution<Item> solution = dp.maximizeValue(problem.getCapacity());
             log.info("Solution: weight {} - value {} - items: {}",
-                    solution.getCost(), solution.getValue(), solution.getItems().size());
+                    solution.currentCost(), solution.currentValue(), solution.getItems().size());
         }
     }
 
